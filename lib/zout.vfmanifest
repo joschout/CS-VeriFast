@@ -1,0 +1,11 @@
+.provides ./zout.h#sodium_init
+.provides ./zout.h#zout_auth_hmacsha256
+.provides ./zout.h#zout_box_keypair
+.provides ./zout.h#zout_hash_sha256
+.provides ./zout.h#zout_randombytes_buf
+.provides ./zout.h#zout_scalarmult
+.provides ./zout.h#zout_sign_detached
+.provides ./zout.h#zout_sign_keypair
+.provides ./zout.h#zout_stream_aes128ctr_xor
+.provides ./zout.h#zout_update_iv
+.produces module zout
