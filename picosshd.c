@@ -74,11 +74,17 @@
 #include "picosshd.h"
 #include "skipthis.h"
 
+/*@ predicate ssh_server(struct ssh_server *server) =
+      malloc_block_ssh_server(server) &*&
+      server->host_pub_key |-> _ &*&
+      server->host_secret_key |->_ &*&
+      server->host_key_string_without_length |->_ &*&
+      server->users_mutex |-> _;
+ @*/
+
 
 
 /*@
-
-  predicate ssh_user(struct ssh_user *user) =
 
   predicate ssh_users(struct ssh_user *user, list<void *>values) =
     user == 0?
@@ -90,7 +96,7 @@
       user->mail |-> _ &*&
       user->next |-> ?next &*&
       ssh_users(next, ?values0) &*&
-      values == cons<void *>(value, values0);
+      values == cons<void *>(user, values0);
 @*/
 
 /**
@@ -107,23 +113,37 @@
  * Releases the user_mutex
  */
 void ssh_adduser(struct ssh_server *server, struct string_buffer *username, struct string_buffer *password)
-//@ requires ssh_server(server) &*& string_buffer(username, ?us) &*& string_buffer(password, ?pss);
-//@ release
+/*@ requires
+      server->users_mutex |-> ?mutex &*&
+      mutex(mutex, ssh_server_userlist(server)) &*&
+      string_buffer(username, ?us) &*&
+      string_buffer(password, ?pss);
+ @*/
+/*@ ensures
+      server->users_mutex |-> mutex &*&
+      mutex(mutex, ssh_server_userlist(server)) &*&
+      string_buffer(username, us) &*&
+      string_buffer(password, pss);
+
+ @*/
 {
   struct ssh_user *user = malloc(sizeof(struct ssh_user));
   if (user == NULL) abort();
 
 
-  //@ requires [?f]string_buffer(buffer, ?cs);
-  //@ ensures [f]string_buffer(buffer, cs) &*& string_buffer(result, cs);
+  ////@ requires [?f]string_buffer(buffer, ?cs);
+  ////@ ensures [f]string_buffer(buffer, cs) &*& string_buffer(result, cs);
   user->username = string_buffer_copy(username);
   user->password = string_buffer_copy(password);
   user->mail = create_string_buffer();
-
   mutex_acquire(server->users_mutex);
+  //@ open ssh_server_userlist(server)();
   user->next = server->users;
   server->users = user;
+  //@close ssh_users(user, cons(user->next, _));
+  //@ close ssh_server_userlist(server)();
   mutex_release(server->users_mutex);
+
 }
 
 /**
@@ -150,8 +170,8 @@ void ssh_adduser(struct ssh_server *server, struct string_buffer *username, stru
  * Release the user_mutex
  */
 bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, struct string_buffer *password)
-//@ requires &*& string_buffer(username, ?us) &*& string_buffer(password, ?pss);
-//@ ensures;
+////@ requires string_buffer(username, ?us) &*& string_buffer(password, ?pss);
+////@ ensures true;
 {
   bool result = false;
   // Totally not secure against timing attacks.
@@ -178,12 +198,10 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
   return result;
 }
 
-
-/*@ predicate ssh_server_pred(struct ssh_server *server) =
-      malloc_block_ssh_server(server);
-
-
- @*/
+/*@ predicate_ctor ssh_server_userlist(struct ssh_server *server)() =
+      server->users |-> ?user &*&
+      ssh_users(user, ?userlist);
+@*/
 
 
 /**
@@ -191,7 +209,7 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
  */
 struct ssh_server *create_ssh_server(int port)
 //@ requires module(zout, true);
-//@ ensures true;
+//@ ensures ssh_server(result);
 {
 
   if (sodium_init() == -1) {
@@ -254,12 +272,15 @@ struct ssh_server *create_ssh_server(int port)
   server->host_key_string_without_length = ssh_create_host_key_string_without_length(server);
   server->ss = ss;
   server->users = NULL;
-
-  ////@ create_mutex_ghost_arg(?p) &*& p();
+  //@ close ssh_users(0, nil);
+  //@ close ssh_server_userlist(server)();
+  //@ close create_mutex_ghost_arg(ssh_server_userlist(server));
   server->users_mutex = create_mutex();
+  //@ close ssh_server(server);
 
   struct string_buffer *username = create_string_buffer_from_string("admin");
   struct string_buffer *password = create_string_buffer_from_string("123");
+  //@ close ssh_users(0, nil);
   ssh_adduser(server, username, password);
   string_buffer_dispose(username);
   string_buffer_dispose(password);
@@ -268,6 +289,8 @@ struct ssh_server *create_ssh_server(int port)
 }
 
 /**
+ * Assignes memory for a session on the heap
+ * Assignes memory for ssh_keys on the heap
  *
  */
 struct ssh_session *ssh_create_session(struct ssh_server *ssh)
@@ -888,7 +911,24 @@ void ssh_protocol_loop(struct ssh_session *session, success_t *success)
   }
 }
 
-void ssh_do_session(struct ssh_session *session)
+
+/*@
+    predicate_family_instance thread_run_data(ssh_do_session)(struct ssh_session *session) =
+        malloc_block_ssh_session(session) &*&
+        session->server |-> ?server &*&
+        ssh_server(server) &*&
+        session->socket |-> _ &*&
+        session->cipher_block_size |-> _ &*&
+        session->packets_read |-> _ &*&
+        session->packets_written |-> _ &*&
+        session->channel_id |-> _ &*&
+        session->receive_buffer |-> _ &*&
+        session->logged_in_as |-> _;
+@*/
+
+void ssh_do_session(struct ssh_session *session) //@ : thread_run
+//@ requires thread_run_data(ssh_do_session)(session);
+//@ ensures true;
 {
   success_t success = SUCCESS;
 
@@ -937,7 +977,7 @@ int main() //@ : main_full(picosshd)
     {
       session = ssh_create_session(ssh);
     }
-    thread_start(ssh_do_session, session);
+    thread_start(ssh_do_session, session); //starts a runnable function which cannot be joined
   }
 }
 
