@@ -91,7 +91,55 @@
         server->users_mutex |-> ?mutex &*&
         mutex(mutex, ssh_server_userlist(server));
  @*/
+/*@ predicate ssh_session(struct ssh_session *session) =
+      session == 0 ?
+        true
+      :
+        malloc_block_ssh_session(session) &*&
+        session->server |-> _ &*&
+        session->socket |-> ?socket &*&
+        socket(socket) &*&
+        session->kex_data |-> _ &*&
+        session->keys |-> ?keys &*&
+        ssh_keys(keys) &*&
+        session->cipher_block_size |-> _ &*&
+        session->packets_read |-> _ &*&
+        session->packets_written |-> _ &*&
+        session->channel_id |-> _ &*&
+        session->receive_buffer |-> ?rbuffer &*&
+        string_buffer(rbuffer, _) &*&
+        session->logged_in_as |-> _ ;
+ @*/
 
+/*@ predicate ssh_keys(struct ssh_keys *keys) =
+      keys == 0 ?
+        true
+      :
+        malloc_block_ssh_keys(keys) &*&
+        chars(keys->iv_c2s, _, _) &*&
+        chars(keys->iv_s2c, _, _) &*&
+        chars(keys->key_enc_c2s, _, _) &*&
+        chars(keys->key_enc_s2c, _, _) &*&
+        chars(keys->key_integrity_c2s, _, _) &*&
+        chars(keys->key_integrity_s2c, _, _);
+
+ @*/
+
+
+/*@ predicate ssh_kex_data(struct ssh_kex_data *data) =
+      malloc_block_ssh_kex_data(data) &*&
+      data->client_version |-> _ &*&
+      data->server_version |-> _ &*&
+      data->server_kex_init |-> _ &*&
+      data->client_kex_init |-> _ &*&
+      chars(data->dh_server_publickey, _, _) &*&
+      chars(data->dh_server_secretkey, _, _) &*&
+      chars(data->dh_shared_secret, _, _) &*&
+      chars(data->session_id, _, _) &*&
+      chars(data->dh_hash, _, _);
+
+
+ @*/
 
 /**@
 
@@ -376,18 +424,24 @@ struct ssh_server *create_ssh_server(int port)
  *
  */
 struct ssh_session *ssh_create_session(struct ssh_server *ssh)
+//@ requires ssh_server(ssh) &*& ssh != 0;
+//@ ensures ssh_server(ssh) &*& ssh_session(result);
 {
   struct ssh_session *session = malloc(sizeof(struct ssh_session));
   if (session == NULL) {
+  //@close ssh_session(0);
     return NULL;
   }
   struct ssh_keys *keys = malloc(sizeof(struct ssh_keys));
   if (keys == NULL) {
     free(session);
+    //@close ssh_session(0);
     return NULL;
   }
   
+  //@ open ssh_server(ssh);
   struct socket* socket = server_socket_accept(ssh->ss);
+  //@ close ssh_server(ssh);
   if (socket != NULL){
     session->server = ssh;
     session->packets_read = 0;
@@ -398,11 +452,14 @@ struct ssh_session *ssh_create_session(struct ssh_server *ssh)
     session->receive_buffer = create_string_buffer();
     session->logged_in_as = NULL;
     session->socket = socket;
+    //@ close ssh_keys(keys);
+    //@ close ssh_session(session);
     return session;
   }else{
     free(session);
     free(keys);
     return NULL;
+    //@close ssh_session(0);
   }
 }
 
@@ -996,21 +1053,12 @@ void ssh_protocol_loop(struct ssh_session *session, success_t *success)
 
 /*@
     predicate_family_instance thread_run_data(ssh_do_session)(struct ssh_session *session) =
-        malloc_block_ssh_session(session) &*&
-        session->server |-> ?server &*&
-        ssh_server(server) &*&
-        session->socket |-> _ &*&
-        session->cipher_block_size |-> _ &*&
-        session->packets_read |-> _ &*&
-        session->packets_written |-> _ &*&
-        session->channel_id |-> _ &*&
-        session->receive_buffer |-> _ &*&
-        session->logged_in_as |-> _;
+        ssh_session(session);
 @*/
 
-void ssh_do_session(struct ssh_session *session)// //@ : thread_run
-////@ requires thread_run_data(ssh_do_session)(session);
-////@ ensures true;
+void ssh_do_session(struct ssh_session *session)//@ : thread_run
+//@ requires thread_run_data(ssh_do_session)(session);
+//@ ensures true;
 {
   success_t success = SUCCESS;
 
@@ -1053,15 +1101,18 @@ int main() //@ : main_full(picosshd)
     return 1;
   }
   while (true)
-  //@ invariant true;
+  //@ invariant ssh_server(ssh);
   {
     struct ssh_session *session = NULL;
 
+    //@ close ssh_session(0);
     while (session == NULL)
-    //@ invariant true;
+    //@ invariant ssh_server(ssh) &*& ssh_session(session);
     {
+    //@ open ssh_session(session);
       session = ssh_create_session(ssh);
     }
+    //@close thread_run_data(ssh_do_session)(session);
     thread_start(ssh_do_session, session); //starts a runnable function which cannot be joined
   }
 }
