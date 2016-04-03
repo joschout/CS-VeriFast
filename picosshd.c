@@ -630,7 +630,11 @@ cleanup:
 
 
 void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload, success_t *success)
-//@ requires ssh_session(session) &*& session != 0 &*& string_buffer(payload, _) &*& integer(success, _) &*& [_]sodium_is_initialized();
+/*@ requires
+      ssh_session(session) &*& session != 0
+      &*& string_buffer(payload, _)
+      &*& integer(success, _) &*&
+      [_]sodium_is_initialized(); @*/
 //@ ensures ssh_session(session) &*& string_buffer(payload, _) &*& integer(success, _);
 {
   struct string_buffer *to_send = create_string_buffer();
@@ -716,9 +720,13 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
 }
 
 
+
 struct string_buffer *ssh_send_kex_init(struct ssh_session *session, success_t *success)
-//@ requires [_]sodium_is_initialized() &*& integer(success, _);
-//@ ensures string_buffer(result, _) &*& integer(success, _);
+/*@ requires
+      [_]sodium_is_initialized() &*&
+      ssh_session(session) &*& session != 0
+      &*& integer(success, _); @*/
+//@ ensures string_buffer(result, _) &*& ssh_session(session) &*& integer(success, _);
 {
   struct string_buffer *kex_init = create_string_buffer();
 
@@ -787,6 +795,7 @@ struct ssh_kex_data *ssh_kex_data_create()
 
 void ssh_kex_data_dispose(struct ssh_kex_data *kex)
 {
+  //@ open ssh_kex_data(kex);
   string_buffer_dispose(kex->client_version);
   string_buffer_dispose(kex->server_version);
   string_buffer_dispose(kex->server_kex_init);
@@ -866,7 +875,9 @@ void ssh_kex_calc_keys(struct ssh_kex_data *kex_data, struct ssh_keys *keys)
  * Coordinate key exchange network packets and cryptographic calculations.
  */
 void ssh_kex(struct ssh_session *session, success_t *success)
-//@ requires ssh_session(session) &*& integer(success, _) &*& session != 0;
+/*@ requires
+      [_]sodium_is_initialized() &*&
+      ssh_session(session) &*& integer(success, _) &*& session != 0; @*/
 //@ ensures ssh_session(session) &*& integer(success, _);
 {
   struct ssh_kex_data *kex_data = ssh_kex_data_create();
@@ -874,6 +885,7 @@ void ssh_kex(struct ssh_session *session, success_t *success)
   //@ open ssh_kex_data(kex_data);
   kex_data->client_version = ssh_recv_version(session);
   kex_data->server_version = ssh_send_version(session);
+  //@close ssh_session(session);
   kex_data->server_kex_init = ssh_send_kex_init(session, success);
   kex_data->client_kex_init = ssh_recv_kex_init(session, success);
   kex_data->dh_client_pubkey = ssh_read_dh_client_pubkey(session, success);
