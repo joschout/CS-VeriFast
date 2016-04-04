@@ -45,7 +45,8 @@ struct ssh_server {
 };
 
 struct ssh_kex_data {
-  // hint: either all or none of these string buffers are NULL (except during key exchange)
+  /* hint: either all or none of these string buffers are NULL
+   * (except during key exchange)*/
   struct string_buffer *client_version;
   struct string_buffer *server_version;
   struct string_buffer *server_kex_init;

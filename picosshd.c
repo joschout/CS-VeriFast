@@ -130,20 +130,39 @@
 
 
 /*@ predicate ssh_kex_data(struct ssh_kex_data *data) =
-      malloc_block_ssh_kex_data(data) &*&
-      data->client_version |-> _ &*&
-      data->server_version |-> _ &*&
-      data->server_kex_init |-> _ &*&
-      data->client_kex_init |-> _ &*&
-      data->dh_client_pubkey |-> _ &*&
-      chars(data->dh_server_publickey, zout_box_PUBLICKEYBYTES, _) &*&
-      chars(data->dh_server_secretkey, zout_box_SECRETKEYBYTES, _) &*&
-      chars(data->dh_shared_secret, zout_scalarmult_BYTES, _) &*&
-      chars(data->session_id, zout_hash_sha256_BYTES, _) &*&
-      chars(data->dh_hash, zout_hash_sha256_BYTES, _);
+      data == 0 ?
+        true
+      :
+        malloc_block_ssh_kex_data(data) &*&
+        ssh_kex_data_string_buffers(data) &*&
+        chars(data->dh_server_publickey, zout_box_PUBLICKEYBYTES, _) &*&
+        chars(data->dh_server_secretkey, zout_box_SECRETKEYBYTES, _) &*&
+        chars(data->dh_shared_secret, zout_scalarmult_BYTES, _) &*&
+        chars(data->session_id, zout_hash_sha256_BYTES, _) &*&
+        chars(data->dh_hash, zout_hash_sha256_BYTES, _);
 
 
  @*/
+
+/*@ predicate ssh_kex_data_string_buffers(struct ssh_kex_data *data) =
+      	data->client_version |-> ?client_version &*&
+      	( client_version == 0 ?
+          data->server_version |-> 0 &*&
+          data->server_kex_init |-> 0 &*&
+          data->client_kex_init |-> 0 &*&
+          data->dh_client_pubkey |-> 0
+        :
+          string_buffer(client_version, _) &*&
+          data->server_version |-> ?server_version &*& server_version != 0 &*&
+          string_buffer(server_version, _) &*&
+          data->server_kex_init |-> ?server_kex_init  &*& server_kex_init != 0 &*&
+          string_buffer(server_kex_init, _) &*&
+          data->client_kex_init |-> ?client_kex_init &*& client_kex_init != 0 &*&
+          string_buffer(client_kex_init, _) &*&
+          data->dh_client_pubkey |-> ?dh_client_pubkey &*& dh_client_pubkey !=0 &*&
+          string_buffer(dh_client_pubkey, _)
+        );
+@*/
 
 /**@
 
@@ -310,10 +329,10 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
       }
     }
 
-    
+
     ////@ close ssh_users(user, cons(head(userlist), nil));
     user = user->next;
-    
+
     ////@ append_assoc(userlist2, cons(user, nil), userlist);
   }
   //@ close ssh_server_userlist(server)();
@@ -442,7 +461,7 @@ struct ssh_session *ssh_create_session(struct ssh_server *ssh)
     //@close ssh_session(0);
     return NULL;
   }
-  
+
   //@ open ssh_server(ssh);
   struct socket* socket = server_socket_accept(ssh->ss);
   //@ close ssh_server(ssh);
@@ -476,6 +495,11 @@ struct ssh_session *ssh_create_session(struct ssh_server *ssh)
  * Returned buffer does not include length, padding length, padding and mac.
  */
 struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *success)
+/*@ requires
+      [_]sodium_is_initialized() &*&
+      ssh_session(session) &*& session != 0
+      &*& integer(success, _); @*/
+//@ ensures string_buffer(result, _) &*& ssh_session(session) &*& integer(success, _);
 {
   /* Packet layout is like this:
    *
@@ -496,7 +520,9 @@ struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *su
   struct string_buffer *first_block_without_lengths = create_string_buffer();
   struct string_buffer *payload = create_string_buffer();
 
-  // Read first block.
+
+  // ============= Read first block. ==========================
+  //@ open ssh_session(session);
   socket_read_chars(session->socket, session->cipher_block_size, first_block);
   int32_t first_block_length = string_buffer_get_length(first_block);
   if (first_block_length != session->cipher_block_size){
@@ -505,9 +531,11 @@ struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *su
     goto cleanup;
   }
 
-  // Decrypt first block.
+  // ============== Decrypt first block.=============================
   char *first_block_chars = string_buffer_get_chars(first_block);
+  ////@ string_buffer_merge_chars(first_block);
   if (session->kex_data){
+    //@ open ssh_keys(session->keys);
     zout_stream_aes128ctr_xor(
       first_block_chars,
       first_block_chars,
@@ -515,9 +543,12 @@ struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *su
       session->keys->iv_c2s,
       session->keys->key_enc_c2s);
     zout_update_iv(session->keys->iv_c2s, 1);
+    //@ close ssh_keys(session->keys);
   }
+  //@ string_buffer_merge_chars(first_block);
 
-  // Obtain lengths
+
+  // ================== Obtain lengths =========================
   string_buffer_append_string_buffer(first_block_without_lengths, first_block);
   int32_t packet_length = ssh_buf_pop_uint32(first_block_without_lengths, success);
   uint8_t padding_length = ssh_buf_pop_uint8(first_block_without_lengths, success);
@@ -546,9 +577,9 @@ struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *su
     *success = FAILURE;
     goto cleanup;
   }
-  
-  // Read the next blocks.
-  
+
+  // ============= Read the next blocks. =======================
+
   // Hint: call the lemma div_rem((payload_length), session->cipher_block_size)
   socket_read_chars(session->socket, bytes_to_read, later_blocks);
   if (string_buffer_get_length(later_blocks) != bytes_to_read){
@@ -557,8 +588,9 @@ struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *su
     goto cleanup;
   }
 
-  // Decrypt these next blocks
+  // =================== Decrypt these next blocks=================
   if (session->kex_data){
+    //@ open ssh_keys(session->keys);
     int later_blocks_length = string_buffer_get_length(later_blocks);
     char *later_blocks_chars = string_buffer_get_chars(later_blocks);
     zout_stream_aes128ctr_xor(
@@ -568,12 +600,14 @@ struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *su
           session->keys->iv_c2s,
           session->keys->key_enc_c2s);
     zout_update_iv(session->keys->iv_c2s, blocks_to_read);
+    //@ close ssh_keys(session->keys);
+    //@ string_buffer_merge_chars(later_blocks);
   }
 
   string_buffer_append_string_buffer(all_blocks, first_block);
   string_buffer_append_string_buffer(all_blocks, later_blocks);
-  
-  // Read and check MAC
+
+  //==================== Read and check MAC ============================
   char computed_mac[zout_auth_hmacsha256_BYTES]; // outside if-block to avoid triggering VeriFast bug #1949
   if (session->kex_data){
     // read MAC from network
@@ -592,30 +626,38 @@ struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *su
     // Perform MAC calculation.
     int for_mac_computation_length = string_buffer_get_length(input_for_mac_computation);
     char *for_mac_computation_chars = string_buffer_get_chars(input_for_mac_computation);
+    //@ open ssh_keys(session->keys);
     zout_auth_hmacsha256(computed_mac, for_mac_computation_chars, for_mac_computation_length, session->keys->key_integrity_c2s);
+    //@ close ssh_keys(session->keys);
+    //@ string_buffer_merge_chars(input_for_mac_computation);
     string_buffer_dispose(input_for_mac_computation);
     // Is MAC correct?
     if (memcmp(string_buffer_get_chars(mac_from_network), computed_mac, zout_auth_hmacsha256_BYTES) != 0){
+      //@ string_buffer_merge_chars(mac_from_network);
       puts("Message authentication failed!");
       *success = FAILURE;
-      
+
       goto cleanup;
     }
+    //@ string_buffer_merge_chars(mac_from_network);
   }
-  
-  // we have read a packet and should increase the read packets counter
+
+
+  // =========== we have read a packet and should increase the read packets counter ==========
   if (session->packets_read == INT_MAX){
     *success = FAILURE;
     goto cleanup;
   }
   session->packets_read = session->packets_read + 1;
 
-  // Calculate the payload we want to return.
+  // ============= Calculate the payload we want to return. ===============
   int all_blocks_length = string_buffer_get_length(all_blocks);
   char *all_blocks_chars = string_buffer_get_chars(all_blocks);
+
   string_buffer_append_chars(payload,
       all_blocks_chars,
       all_blocks_length - padding_length);
+      //@ string_buffer_merge_chars(all_blocks);
   ssh_buf_pop_uint32(payload, success); // drop payload length field
   ssh_buf_pop_uint8(payload, success); // drop padding length field
 
@@ -626,6 +668,7 @@ cleanup:
   string_buffer_dispose(first_block);
   string_buffer_dispose(first_block_without_lengths);
   return payload;
+  //@ close ssh_session(session);
 }
 
 
@@ -642,7 +685,7 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
   // Calculate lengths
   int32_t payload_length = string_buffer_get_length(payload);
   //@ open ssh_session(session);
- 
+
   //@ div_rem((payload_length), session->cipher_block_size);
   // Hint: session->cipher_block_size is 8 or 16
   // Hint: call the lemma "div_rem((payload_length), session->cipher_block_size);"
@@ -660,7 +703,7 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
   //@ division_remains_positive(packet_length + 4, session->cipher_block_size);
   int32_t blocks = (packet_length + 4) / session->cipher_block_size;
   // Hint: call the lemma "division_remains_positive(packet_length + 4, session->cipher_block_size);"
-  
+
   // Construct what we will send
   ssh_buf_append_uint32(to_send, packet_length);
   ssh_buf_append_byte(to_send, (uint8_t)padding_length);
@@ -696,7 +739,7 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
         to_send_length,
         session->keys->iv_s2c,
         session->keys->key_enc_s2c);
-  
+
     // Updating initialization vector after encrypting
     zout_update_iv(session->keys->iv_s2c, blocks);
 
@@ -708,7 +751,7 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
     string_buffer_dispose(for_mac_computation);
     //@close ssh_keys(session->keys);
   }
-  
+
   if (session->packets_written == INT_MAX){
     *success = FAILURE;
   }else{
@@ -774,28 +817,38 @@ struct string_buffer *ssh_send_kex_init(struct ssh_session *session, success_t *
 }
 
 struct string_buffer *ssh_recv_kex_init(struct ssh_session *session, success_t *success)
+/*@ requires
+      [_]sodium_is_initialized() &*&
+      ssh_session(session) &*& session != 0
+      &*& integer(success, _); @*/
+//@ ensures string_buffer(result, _) &*& ssh_session(session) &*& integer(success, _);
 {
   return ssh_read_packet(session, success);
 }
 
 struct ssh_kex_data *ssh_kex_data_create()
 //@ requires true;
-//@ ensures ssh_kex_data(result);
+//@ ensures ssh_kex_data(result) &*& result != 0;
 {
   struct ssh_kex_data *kex_data = malloc(sizeof(struct ssh_kex_data));
   if (kex_data == NULL) abort ();
+  //@ assert kex_data != 0;
   kex_data->client_version = NULL;
   kex_data->server_version = NULL;
   kex_data->server_kex_init = NULL;
   kex_data->client_kex_init = NULL;
   kex_data->dh_client_pubkey = NULL;
+  //@ close ssh_kex_data_string_buffers(kex_data);
   //@close ssh_kex_data(kex_data);
   return kex_data;
 }
 
 void ssh_kex_data_dispose(struct ssh_kex_data *kex)
+//@ requires ssh_kex_data(kex) &*& kex != 0;
+//@ ensures true;
 {
   //@ open ssh_kex_data(kex);
+  //@ open ssh_kex_data_string_buffers(kex);
   string_buffer_dispose(kex->client_version);
   string_buffer_dispose(kex->server_version);
   string_buffer_dispose(kex->server_kex_init);
@@ -883,11 +936,15 @@ void ssh_kex(struct ssh_session *session, success_t *success)
   struct ssh_kex_data *kex_data = ssh_kex_data_create();
   //@ open ssh_session(session);
   //@ open ssh_kex_data(kex_data);
+  //@ open ssh_kex_data_string_buffers(kex_data);
   kex_data->client_version = ssh_recv_version(session);
   kex_data->server_version = ssh_send_version(session);
-  //@close ssh_session(session);
+  ////@ close ssh_kex_data_string_buffers(kex_data);
+  ////@ close ssh_kex_data(kex_data);
+  //@ close ssh_session(session);
   kex_data->server_kex_init = ssh_send_kex_init(session, success);
   kex_data->client_kex_init = ssh_recv_kex_init(session, success);
+  //@ open ssh_session(session);
   kex_data->dh_client_pubkey = ssh_read_dh_client_pubkey(session, success);
   if (string_buffer_get_length(kex_data->dh_client_pubkey) != zout_box_PUBLICKEYBYTES){
     *success = FAILURE;
@@ -902,6 +959,9 @@ void ssh_kex(struct ssh_session *session, success_t *success)
     string_buffer_dispose(kex_data->dh_client_pubkey);
     free(kex_data);
     return;
+    ////@ close ssh_kex_data_string_buffers(kex_data);
+    ////@ close ssh_kex_data(kex_data);
+    //@ close ssh_session(session);
   }
   // Create our diffie-hellman (dh) keypair:
   zout_box_keypair(kex_data->dh_server_publickey, kex_data->dh_server_secretkey);
@@ -922,6 +982,8 @@ void ssh_kex(struct ssh_session *session, success_t *success)
   if (session->kex_data != NULL) ssh_kex_data_dispose(session->kex_data);
   session->kex_data = kex_data;
   session->cipher_block_size = zout_stream_aes128ctr_CIPHERBLOCKBYTES;
+  ////@ close ssh_kex_data(kex_data);
+  ////@ close ssh_session(session);
 }
 
 
