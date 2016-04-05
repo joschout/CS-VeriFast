@@ -87,8 +87,8 @@
         chars(server->host_secret_key, zout_sign_SECRETKEYBYTES, _) &*&
         server->host_key_string_without_length |-> ?hkwl &*&
         string_buffer(hkwl, _) &*&
-        server->users_mutex |-> ?mutex &*&
-        mutex(mutex, ssh_server_userlist(server));
+        [?f1]server->users_mutex |-> ?mutex &*&
+        [?f2]mutex(mutex, ssh_server_userlist(server));
  @*/
 /*@ predicate ssh_session(struct ssh_session *session, struct ssh_server *server, struct ssh_kex_data *kex_data, bool isNull) =
       session == 0 ?
@@ -114,7 +114,7 @@
         session->receive_buffer |-> ?rbuffer &*&
         string_buffer(rbuffer, _) &*&
         session->logged_in_as |-> ?logged_in_as &*&
-        string_buffer(logged_in_as, _);
+        (logged_in_as == 0 ? true : string_buffer(logged_in_as, _) );
  @*/
 
 /*@ predicate ssh_keys(struct ssh_keys *keys) =
@@ -459,14 +459,14 @@ ensures
  */
 void ssh_adduser(struct ssh_server *server, struct string_buffer *username, struct string_buffer *password)
 /*@ requires
-      server->users_mutex |-> ?mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [?f1]server->users_mutex |-> ?mutex &*&
+      [?f2]mutex(mutex, ssh_server_userlist(server)) &*&
       string_buffer(username, ?us) &*&
       string_buffer(password, ?pss);
  @*/
 /*@ ensures
-      server->users_mutex |-> mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [f1]server->users_mutex |-> mutex &*&
+      [f2]mutex(mutex, ssh_server_userlist(server)) &*&
       string_buffer(username, us) &*&
       string_buffer(password, pss);
 
@@ -520,19 +520,19 @@ void ssh_adduser(struct ssh_server *server, struct string_buffer *username, stru
 bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, struct string_buffer *password)
 /*@ requires
       session->logged_in_as |-> ?logged_in_as &*&
-      string_buffer(logged_in_as, _) &*&
+      (logged_in_as == 0 ? true : string_buffer(logged_in_as, _) ) &*&
       session->server |-> ?server &*&
-      server->users_mutex |-> ?mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> ?mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       string_buffer(username, ?us) &*&
       string_buffer(password, ?pss);
 @*/
 /*@ ensures
       session->logged_in_as |-> ?logged_in_as2 &*&
-      string_buffer(logged_in_as2, _) &*&
+      (logged_in_as2 == 0 ? true : string_buffer(logged_in_as2, _) ) &*&
       session->server |-> server &*&
-      server->users_mutex |-> mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       string_buffer(username, us) &*&
       string_buffer(password, pss); @*/
 {
@@ -556,7 +556,7 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
   while (user != NULL)
 /*@ invariant
           session->logged_in_as |-> ?log &*&
-          string_buffer(log, _) &*&
+          (log == 0 ? true : string_buffer(log, _) ) &*&
           string_buffer(username, us) &*&
           string_buffer(password, pss) &*&
           users_cfrnodes_lseg(first_user, user, ?count1) &*&
@@ -616,7 +616,7 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
  */
 struct ssh_server *create_ssh_server(int port)
 //@ requires module(zout, true);
-//@ ensures ssh_server(result);
+//@ ensures [_]sodium_is_initialized() &*& ssh_server(result);
 {
 
   if (sodium_init() == -1) {
@@ -688,7 +688,7 @@ struct ssh_server *create_ssh_server(int port)
   server->host_key_string_without_length = ssh_create_host_key_string_without_length(server);
   server->ss = ss;
   server->users = NULL;
-  //@ close ssh_users(0, nil);
+  //@ close users_cfr_nodes(0, 0);
   //@ close ssh_server_userlist(server)();
   //@ close create_mutex_ghost_arg(ssh_server_userlist(server));
   server->users_mutex = create_mutex();
@@ -1390,9 +1390,9 @@ void ssh_kex(struct ssh_session *session, success_t *success)
        integer(success, _) &*& session != 0; @*/
 /*@ ensures 
 	ssh_server(server) &*& 
-	ssh_session(session, server, ?kex_data_new, _)  &*&
-	
-	integer(success, _); @*/
+	ssh_session(session, server, ?kex_data_new, ?isNull0)  &*&
+	integer(success, ?isSucces) &*&
+    (isSucces == 1 ? isNull0 == false : true); @*/
 {
 
   // =========== initialize key exchange data ==================
@@ -1469,14 +1469,17 @@ void ssh_kex(struct ssh_session *session, success_t *success)
 
 void ssh_userauth_request(struct ssh_session *session, struct string_buffer *packet, success_t *success)
 /*@ requires
+      [_]sodium_is_initialized() &*&
       ssh_session(session, ?server, ?kex_data, false) &*& session != 0 &*&
       string_buffer(packet, _) &*&
-
+      [_]server->users_mutex |-> ?mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 /*@ ensures
       ssh_session(session, server, kex_data, false) &*&
       string_buffer(packet, _) &*&
-
+      [_]server->users_mutex |-> mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 {
   struct string_buffer *username = ssh_buf_pop_string(packet, success);
@@ -1488,14 +1491,19 @@ void ssh_userauth_request(struct ssh_session *session, struct string_buffer *pac
   if(string_buffer_equals_string(auth_method, "password")){
     ssh_buf_pop_uint8(packet, success);//we don't support pasword change and so we ignore such requests
     struct string_buffer *password = ssh_buf_pop_string(packet, success);
+    //@ open ssh_session(session, server, kex_data, false);
     if (ssh_auth_user(session, username, password)){
       struct string_buffer *userauth_succeed = create_string_buffer();
       
       ssh_buf_append_byte(userauth_succeed, SSH_MSG_USERAUTH_SUCCESS);
+      //@ close ssh_session(session, server, kex_data, false);
       ssh_send_packet(session, userauth_succeed, success);
       string_buffer_dispose(userauth_succeed);
       authenticated = true;
+      //@ open ssh_session(session, server, kex_data, false);
     }
+    //@ close ssh_session(session, server, kex_data, false);
+    
     string_buffer_dispose(password);
   }
   if(!authenticated){//if the authentication method is not password or the password provided is wrong.
@@ -1517,13 +1525,13 @@ void ssh_menu_adduser(struct ssh_session *session, struct string_buffer *argumen
 /*@ requires
       ssh_session(session, ?server, ?kex_data, false) &*& session != 0 &*&
       string_buffer(arguments, _) &*&
-      server->users_mutex |-> ?mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> ?mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 /*@ ensures
       ssh_session(session, server, kex_data, false) &*&
-      server->users_mutex |-> mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       string_buffer(arguments, _) &*&
       integer(success, _); @*/
 {
@@ -1549,14 +1557,14 @@ void ssh_menu_command(struct ssh_session *session, struct string_buffer *full_co
 /*@ requires
       ssh_session(session, ?server, ?kex_data, false) &*& session != 0 &*&
       string_buffer(full_commandline, _) &*&
-      server->users_mutex |-> ?mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> ?mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 /*@ ensures
       ssh_session(session, server, kex_data, false) &*&
       string_buffer(full_commandline, _) &*&
-      server->users_mutex |-> mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 {
   struct string_buffer *cmd = create_string_buffer();
@@ -1598,14 +1606,14 @@ void ssh_channel_data(struct ssh_session *session, struct string_buffer *packet,
 /*@ requires
       ssh_session(session, ?server, ?kex_data, false) &*& session != 0 &*&
       string_buffer(packet, _) &*&
-      server->users_mutex |-> ?mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> ?mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 /*@ ensures
       ssh_session(session, server, kex_data, false) &*&
       string_buffer(packet, _) &*&
-      server->users_mutex |-> mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 {
   //@ open ssh_session(session, server, kex_data, false);
@@ -1624,7 +1632,7 @@ void ssh_channel_data(struct ssh_session *session, struct string_buffer *packet,
   while (can_split)
   /*@ invariant 
   	ssh_session(session, server, kex_data, false) &*& integer(success, _) &*&
-  	server->users_mutex |-> mutex &*& mutex(mutex, ssh_server_userlist(server)) ; @*/
+  	[_]server->users_mutex |-> mutex &*& [_]mutex(mutex, ssh_server_userlist(server)) ; @*/
   {
     struct string_buffer *before = create_string_buffer();
     struct string_buffer *after = create_string_buffer();
@@ -1649,13 +1657,13 @@ void ssh_protocol_loop(struct ssh_session *session, success_t *success)
 /*@ requires
       [_]sodium_is_initialized() &*&
       ssh_session(session, ?server, ?kex_data, false) &*& session != 0 &*&
-      server->users_mutex |-> ?mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> ?mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 /*@ ensures
       ssh_session(session, server, kex_data, false) &*&
-      server->users_mutex |-> mutex &*&
-      mutex(mutex, ssh_server_userlist(server)) &*&
+      [_]server->users_mutex |-> mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 {
   bool cont = true;
@@ -1663,8 +1671,8 @@ void ssh_protocol_loop(struct ssh_session *session, success_t *success)
     /*@ invariant
           [_]sodium_is_initialized() &*&
           ssh_session(session, server, kex_data, false) &*& session != 0 &*&
-          server->users_mutex |-> mutex &*&
-          mutex(mutex, ssh_server_userlist(server)) &*&
+          [_]server->users_mutex |-> mutex &*&
+          [_]mutex(mutex, ssh_server_userlist(server)) &*&
           integer(success, _); @*/
   {
     struct string_buffer *packet = ssh_read_packet(session, success);
@@ -1713,10 +1721,26 @@ void ssh_protocol_loop(struct ssh_session *session, success_t *success)
   }
 }
 
-
 /*@
     predicate_family_instance thread_run_data(ssh_do_session)(struct ssh_session *session) =
-        [_]sodium_is_initialized() &*& ssh_session(session, ?server, 0, true) &*& ssh_server(server) &*& session != 0;
+        [_]sodium_is_initialized() &*&
+        ssh_session(session, ?server, 0, true) &*& session != 0 &*& 
+        ssh_server(server) &*& server != 0
+
+        ;
+@*/
+
+
+
+/**@
+    predicate_family_instance thread_run_data(ssh_do_session)(struct ssh_session *session) =
+        [_]sodium_is_initialized() &*&
+        ssh_session(session, ?server, 0, true) &*&
+        ssh_server(server) &*& session != 0 &*&
+        [_]server->users_mutex |-> ?mutex &*&
+        [_]mutex(mutex, ssh_server_userlist(server))
+
+        ;
 @*/
 
 void ssh_do_session(struct ssh_session *session)//@ : thread_run
@@ -1730,8 +1754,11 @@ void ssh_do_session(struct ssh_session *session)//@ : thread_run
   //@open thread_run_data(ssh_do_session)(session);
   ssh_kex(session, &success);
   if (success == SUCCESS) {
+    //@ open ssh_server(?server);
     ssh_protocol_loop(session, &success);
+    //@ open ssh_server(server);
   }
+  //@ open ssh_session(session, _, _, _);
   socket_close(session->socket);
   session->socket = NULL;
   if (success == SUCCESS){
@@ -1745,8 +1772,10 @@ void ssh_do_session(struct ssh_session *session)//@ : thread_run
   }
   string_buffer_dispose(session->receive_buffer);
   string_buffer_dispose(session->logged_in_as);
+  //@ open ssh_keys(_);
   free(session->keys);
   free(session);
+  //@ leak ssh_server(_);
 }
 
 // Hint : // @ import_module zout;
@@ -1764,17 +1793,18 @@ int main() //@ : main_full(picosshd)
     return 1;
   }
   while (true)
-  //@ invariant ssh_server(ssh);
+  //@ invariant [_]sodium_is_initialized() &*& ssh_server(ssh);
   {
     struct ssh_session *session = NULL;
 
-    //@ close ssh_session(0);
+    //@ close ssh_session(session, ssh, 0, true);
     while (session == NULL)
-    //@ invariant ssh_server(ssh) &*& ssh_session(session);
+    //@ invariant [_]sodium_is_initialized() &*& ssh_server(ssh) &*& ssh_session(session, ssh, 0, true);
     {
-    //@ open ssh_session(session);
+    //@ open ssh_session(session, ssh, 0, true);
       session = ssh_create_session(ssh);
     }
+    //@ open ssh_server(ssh);
     //@close thread_run_data(ssh_do_session)(session);
     thread_start(ssh_do_session, session); //starts a runnable function which cannot be joined
   }
