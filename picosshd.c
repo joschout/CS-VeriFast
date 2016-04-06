@@ -98,10 +98,6 @@
  @*/
 
 
-
-
-
-
 /*@ predicate ssh_session(struct ssh_session *session, struct ssh_server *server, struct ssh_kex_data *kex_data, bool isNull) =
       session == 0 ?
         true
@@ -159,26 +155,6 @@
 
  @*/
 
-/**@ predicate ssh_kex_data_string_buffers(struct ssh_kex_data *data) =
-      	data->client_version |-> ?client_version &*&
-      	( client_version == 0 ?
-          data->server_version |-> 0 &*&
-          data->server_kex_init |-> 0 &*&
-          data->client_kex_init |-> 0 &*&
-          data->dh_client_pubkey |-> 0
-        :
-          string_buffer(client_version, _) &*&
-          data->server_version |-> ?server_version &*& server_version != 0 &*&
-          string_buffer(server_version, _) &*&
-          data->server_kex_init |-> ?server_kex_init  &*& server_kex_init != 0 &*&
-          string_buffer(server_kex_init, _) &*&
-          data->client_kex_init |-> ?client_kex_init &*& client_kex_init != 0 &*&
-          string_buffer(client_kex_init, _) &*&
-          data->dh_client_pubkey |-> ?dh_client_pubkey &*& dh_client_pubkey !=0 &*&
-          string_buffer(dh_client_pubkey, _)
-        );
-@*/
-
 /*@ predicate_ctor ssh_kex_data_string_buffers(struct ssh_kex_data *data)(bool isNull) =
       	isNull == true ?
       	(
@@ -201,168 +177,11 @@
         );
 @*/
 
-/**@ predicate_ctor ssh_server_userlist(struct ssh_server *server)() =
-      server->users |-> ?user &*&
-      ssh_users(user, ?userlist);
-@*/
+
 /*@ predicate_ctor ssh_server_userlist(struct ssh_server *server)() =
       server->users |-> ?user &*&
       users_cfr_nodes(user, ?count);
 @*/
-
-// ==============================__
-
-/*@
-  predicate ssh_users(struct ssh_user *user, list<void *>values) =
-    user == 0?
-      values == nil<void *>
-    :
-      malloc_block_ssh_user(user) &*&
-      user->username |-> ?name &*& string_buffer(name, _) &*&
-      user->password |-> ?password &*& string_buffer(password, _) &*&
-      user->mail |-> ?mail  &*& string_buffer(mail, _) &*&
-      user->next |-> ?next &*&
-      ssh_users(next, ?values0) &*&
-      values == cons<void *>(user, values0);
-@*/
-
-/*@
-  predicate ssh_users_alt(struct ssh_user *user, int count) =
-    user == 0?
-      count == 0 &*& single_user(0,0)
-    :
-      0 < count &*&
-      single_user(user, ?next) &*&
-      ssh_users_alt(next, count - 1);
-@*/
-
-/*@
-  predicate ssh_users_alt2(struct ssh_user *user, list<void *>userList) =
-    user == 0?
-      userList == nil<void *> &*& single_user(0,0)
-    :
-      0 < length(userList) &*&
-      single_user(user, ?next) &*&
-      ssh_users_alt2(next, tail(userList));
-@*/
-
-
-/*@
-  predicate single_user(struct ssh_user *user, struct ssh_user *nextUser) =
-    user == 0?
-      true
-    :
-      malloc_block_ssh_user(user) &*&
-      user->username |-> ?name &*& string_buffer(name, _) &*&
-      user->password |-> ?password &*& string_buffer(password, _) &*&
-      user->mail |-> ?mail  &*& string_buffer(mail, _) &*&
-      user->next |-> nextUser;
-
-@*/
-
-
-/*@
-  predicate ssh_users_lseg(struct ssh_user *first, struct ssh_user *last, int count) =
-    first == last ?
-      count == 0 &*& single_user(0,0)
-    :
-      0 < count &*&
-      first != 0 &*&
-      single_user(first, ?next) &*&
-      ssh_users_lseg(next, last, count - 1);
-@*/
-
-/*@
-  predicate ssh_users_lseg2(struct ssh_user *first, struct ssh_user *last, list<void *>userList) =
-    first == last ?
-      userList == nil<void *> &*& single_user(0,0)
-    :
-      0 < length(userList) &*&
-      first != 0 &*&
-      single_user(first, ?next) &*&
-      ssh_users_lseg2(next, last, tail(userList));
-@*/
-
-
-/**@
-  lemma void lseg2_add_lemma(struct ssh_user *old_user)
-    requires ssh_users_lseg2(old_user, ?user, ?userList) &*& user != 0 &*& single_user(user, ?next) &*& ssh_users_lseg2(next, 0, ?userList2);
-    ensures ssh_users_lseg2(old_user, next, append(userList, cons(next, nil))) &*& ssh_users_lseg2(next, 0, userList2);
-  {
-    open ssh_users_lseg2(old_user, user, userList);
-    if( old_user == user){
-      close ssh_users_lseg2(next, next, nil);
-    }
-    else{
-      lseg2_add_lemma(old_user);
-    }
-    open ssh_users_lseg2(next, 0, userList2);
-    close ssh_users_lseg2(next, 0, userList2);
-
-    close ssh_users_lseg2(old_user, next, append(userList, cons(next, nil)));
-  }
-
-@*/
-
-/**@
-  lemma void lseg_add_lemma(struct ssh_user *first)
-    requires
-      ssh_users_lseg(first, ?last, ?count) &*&
-      last != 0 &*&
-      single_user(last, ?next) &*&
-      ssh_users_lseg(next, 0, ?count0);
-    ensures
-      ssh_users_lseg(first, next, count + 1) &*&
-      ssh_users_lseg(next, 0, count0);
-  {
-    open ssh_users_lseg(first, last, count);
-    if( first == last){
-      close ssh_users_lseg(next, next, 0);
-    }
-    else{
-      lseg_add_lemma(next);
-    }
-    open ssh_users_lseg(next, 0, count0);
-    open single_user(next,?next0);
-    close single_user(next, next0);
-    close ssh_users_lseg(next, 0, count0);
-
-    close ssh_users_lseg(first, next, count + 1);
-  }
-
-@*/
-
-
-
-/*@
-  lemma void users_to_lseg_lemma(struct ssh_user *first)
-    requires ssh_users_alt(first, ?count);
-    ensures ssh_users_lseg(first, 0, count);
-  {
-    open ssh_users_alt(first, count);
-    open single_user(first, ?next);
-    if (first !=0 ){
-        users_to_lseg_lemma(next);
-    }
-    close single_user(first, next);
-    close ssh_users_lseg(first, 0, count);
-  }
- @*/
-
-/*@
-  lemma void users_to_lseg_lemma2(struct ssh_user *first)
-    requires ssh_users_alt2(first, ?userList);
-    ensures ssh_users_lseg2(first, 0, userList);
-  {
-    open ssh_users_alt2(first, userList);
-    open single_user(first, ?next);
-    if (first !=0 ){
-        users_to_lseg_lemma2(next);
-    }
-    close single_user(first, next);
-    close ssh_users_lseg2(first, 0, userList);
-  }
- @*/
 
 
 /*=====================================================================
@@ -486,25 +305,24 @@ void ssh_adduser(struct ssh_server *server, struct string_buffer *username, stru
 {
   struct ssh_user *user = malloc(sizeof(struct ssh_user));
   if (user == NULL) abort();
-  ////@ requires [?f]string_buffer(username, ?cs);
-  ////@ ensures [f]string_buffer(username, cs) &*& string_buffer(result, cs);
+ 
   user->username = string_buffer_copy(username);
- // //@ open string_buffer(username, _);
+  
   user->password = string_buffer_copy(password);
   user->mail = create_string_buffer();
   mutex_acquire(server->users_mutex);
   //@ open ssh_server_userlist(server)();
-  ////@ assert users_cfr_nodes(_, ?count);
+  
   //@ open users_cfr_nodes(?oldUser, ?count);
   //@ close users_cfr_nodes(oldUser, count);
   user->next = server->users;
   server->users = user;
-  ////@ close single_user(user, user->next);
   //@ close  users_cfr_nodes(user, count + 1);
-  ////@close ssh_users(user, cons(user->next, _));
+  
   //@ close ssh_server_userlist(server)();
   mutex_release(server->users_mutex);
 }
+
 
 /**
  * Checks whether there exists a user on the ssh_server for the given username and password.
@@ -551,14 +369,11 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
   bool result = false;
   // Totally not secure against timing attacks.
   mutex_acquire(session->server->users_mutex);
-  ////@ close ssh_users(0, nil);
+  
   //@ open ssh_server_userlist(server)();
   struct ssh_user *user = session->server->users;
   // Hint: You will need list segments (see tutorial) or Tuerk-loops (see tutorial).
-  ////@ open ssh_users_lseg2(user, 0, ?userlist);
-  ////@ close ssh_users_lseg2(user, 0, userlist);
-  ////@ close single_user(0,0);
-  ////@ close ssh_users_lseg2(0, 0, nil);
+
   //@ users_cfrnodes_to_lseg_lemma(user);
 
   //@ open users_cfrnodes_lseg(?first_user, 0, ?totalCount);
@@ -574,23 +389,12 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
           users_cfrnodes_lseg(first_user, user, ?count1) &*&
           users_cfrnodes_lseg(user, 0, ?count2) &*&
           totalCount == count1 + count2; @*/
-  /**@ invariant
-          session->logged_in_as |-> _ &*&
-          string_buffer(username, us) &*&
-          string_buffer(password, pss) &*&
-          ssh_users_lseg2(?old_user, user,?userlist1) &*& 
-          ssh_users_lseg2(user, 0, ?userlist2) &*&
-          userlist == append(userlist1, userlist2); @*/
   {
    //@ assert user != 0;
     //@ open users_cfrnodes_lseg(user, 0, count2);
-    ////@ close ssh_users_lseg2(user, last, userlist1);
-    ////@ open ssh_users_lseg2(user, last, userlist1);
     if (string_buffer_equals(user->username, username)){
       if(string_buffer_equals(user->password, password)){
 
-        ////@ requires buffer == 0 ? emp : string_buffer(buffer, _);
-        ////@ ensures emp;
         string_buffer_dispose(session->logged_in_as);
         session->logged_in_as = string_buffer_copy(username);
         result = true;
@@ -600,27 +404,17 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
 
 
     //// lemma het vanacher aanvoegen van user aan userlist2 geeft ssh_users(user2, append(userlist2, cons(user, nil)))
-    ////@ close ssh_users(user, cons(head(userlist), nil));
     user = user->next;
-
     //@ users_cfrnodes_lseg_add_lemma(first_user);
-    ////@ append(
-    ////@ append_assoc(userlist2, cons(user, nil), userlist);
+
   }
   //@ open users_cfrnodes_lseg(0,0, _);
-  //@ lseg_to_users_cfrnodes_lemma(first_user);
-
-  ///@ open ssh_users_lseg2(0, 0, nil);
-  ///@ open single_user(0,0);
-  
+  //@ lseg_to_users_cfrnodes_lemma(first_user); 
   
   //@ close ssh_server_userlist(server)();
   mutex_release(session->server->users_mutex);
   return result;
 }
-
-
-
 
 
 /**
@@ -682,7 +476,6 @@ struct ssh_server *create_ssh_server(int port)
   }
 
 
-
   if(failed){
     free(server);
     //@close ssh_server_total(0);
@@ -705,12 +498,10 @@ struct ssh_server *create_ssh_server(int port)
   //@ close create_mutex_ghost_arg(ssh_server_userlist(server));
   server->users_mutex = create_mutex();
 
-  ////@ leak server->users_mutex |-> ?mutex &*& mutex(mutex, ssh_server_userlist(server));
- // //@ close ssh_server(server);
 
   struct string_buffer *username = create_string_buffer_from_string("admin");
   struct string_buffer *password = create_string_buffer_from_string("123");
-  ////@ open ssh_server(server);
+ 
   ssh_adduser(server, username, password);
   /*@ leak chars(server->host_pub_key, zout_sign_PUBLICKEYBYTES, _) &*&
       chars(server->host_secret_key, zout_sign_SECRETKEYBYTES, _) &*&
@@ -761,7 +552,7 @@ struct ssh_session *ssh_create_session(struct ssh_server *ssh)
     session->logged_in_as = NULL;
     session->socket = socket;
     //@ close ssh_keys(keys);
-    ////@ close ssh_kex_data(session->kex_data, true);
+    
     //@ close ssh_session(session, ssh, session->kex_data, true);
     return session;
   }else{
@@ -771,7 +562,6 @@ struct ssh_session *ssh_create_session(struct ssh_server *ssh)
     //@close ssh_session(0, ssh, 0, true);
   }
 }
-
 
 
 /**
@@ -819,7 +609,7 @@ struct string_buffer *ssh_read_packet(struct ssh_session *session, success_t *su
 
   // ============== Decrypt first block.=============================
   char *first_block_chars = string_buffer_get_chars(first_block);
-  ////@ string_buffer_merge_chars(first_block);
+  
   if (session->kex_data){
     //@ open ssh_keys(session->keys);
     zout_stream_aes128ctr_xor(
@@ -957,107 +747,6 @@ cleanup:
   //@ close ssh_session(session, server, kex_data, isNull);
 }
 
-/*void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload, success_t *success)
-**@ requires
-
-      session->cipher_block_size |-> ?cipher_block_size &*& cipher_block_size>=8 &*&
-      session->kex_data |-> ?kex_data &*&
-      session->packets_written |-> ?packets_written &*& packets_written >= 0 &*&
-      session->keys |-> ?keys &*& keys != 0 &*& ssh_keys(keys) &*&
-      string_buffer(payload, _) &*&
-      integer(success, _) &*&
-      [_]sodium_is_initialized(); @*//*
-//*@ ensures
-      session->cipher_block_size |-> cipher_block_size &*&
-      session->kex_data |-> kex_data &*&
-      session->packets_written |-> ?packets_written0 &*& packets_written0 >= packets_written &*&
-      session->keys |-> keys &*& ssh_keys(keys) &*&
-      string_buffer(payload, _) &*&
-      integer(success, _); @*//*
-{
-  struct string_buffer *to_send = create_string_buffer();
-
-  // Calculate lengths
-  int32_t payload_length = string_buffer_get_length(payload);
-  ////@ open ssh_session(session, _);
-
-  //@ div_rem((payload_length), session->cipher_block_size);
-  // Hint: session->cipher_block_size is 8 or 16
-  // Hint: call the lemma "div_rem((payload_length), session->cipher_block_size);"
-  int32_t padding_length = session->cipher_block_size - (4 + 1 + (payload_length % session->cipher_block_size));
-  if (padding_length < 4){
-    padding_length = padding_length + session->cipher_block_size;
-  }
-  if (payload_length > 1048576){
-    *success = FAILURE;
-    string_buffer_dispose(to_send);
-    ////@close ssh_session(session, _);
-    return;
-  }
-  int32_t packet_length = padding_length + 1 + payload_length;
-  //@ division_remains_positive(packet_length + 4, session->cipher_block_size);
-  int32_t blocks = (packet_length + 4) / session->cipher_block_size;
-  // Hint: call the lemma "division_remains_positive(packet_length + 4, session->cipher_block_size);"
-
-  // Construct what we will send
-  ssh_buf_append_uint32(to_send, packet_length);
-  ssh_buf_append_byte(to_send, (uint8_t)padding_length);
-  string_buffer_append_string_buffer(to_send, payload);
-  char *padding = malloc(padding_length);
-  if(!padding){
-    abort();
-  }
-  zout_randombytes_buf(padding, padding_length);
-  string_buffer_append_chars(to_send, padding, padding_length);
-  free(padding);
-
-  if (session->kex_data){
-    // Build input for MAC
-    struct string_buffer *for_mac_computation = create_string_buffer();
-    ssh_buf_append_uint32(for_mac_computation, session->packets_written);
-    string_buffer_append_string_buffer(for_mac_computation, to_send);
-
-    // Compute MAC
-    char computed_mac[zout_auth_hmacsha256_BYTES];
-    int for_mac_computation_length = string_buffer_get_length(for_mac_computation);
-    char *for_mac_computation_chars = string_buffer_get_chars(for_mac_computation);
-    //@open ssh_keys(session->keys);
-    ////@ assert session->keys |-> ?keys &*& chars(keys->key_integrity_s2c, _, _);
-    zout_auth_hmacsha256(computed_mac, for_mac_computation_chars, for_mac_computation_length, session->keys->key_integrity_s2c);
-
-    // Encrypt
-    int to_send_length = string_buffer_get_length(to_send);
-    char *to_send_chars = string_buffer_get_chars(to_send);
-    zout_stream_aes128ctr_xor(
-            to_send_chars,
-            to_send_chars,
-            to_send_length,
-            session->keys->iv_s2c,
-            session->keys->key_enc_s2c);
-
-    // Updating initialization vector after encrypting
-    zout_update_iv(session->keys->iv_s2c, blocks);
-
-    //@ string_buffer_merge_chars(to_send);
-    // Add MAC
-    string_buffer_append_chars(to_send, computed_mac, zout_auth_hmacsha256_BYTES);
-
-    //@ string_buffer_merge_chars(for_mac_computation);
-    string_buffer_dispose(for_mac_computation);
-    //@close ssh_keys(session->keys);
-  }
-
-  if (session->packets_written == INT_MAX){
-    *success = FAILURE;
-  }else{
-    session->packets_written = session->packets_written + 1;
-    socket_write_string_buffer(session->socket, to_send);
-  }
-  string_buffer_dispose(to_send);
-  ////@close ssh_session(session, _);
-}*/
-
-
 
 void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload, success_t *success)
 /*@ requires
@@ -1078,9 +767,7 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
   //@ div_rem((payload_length), session->cipher_block_size);
   // Hint: session->cipher_block_size is 8 or 16
   // Hint: call the lemma "div_rem((payload_length), session->cipher_block_size);"
-  
-  ///@ produce_limits(session->cipher_block_size);
-  
+   
   int32_t padding_length = session->cipher_block_size - (4 + 1 + (payload_length % session->cipher_block_size));
   //@ produce_limits(padding_length);
   if (padding_length < 4){
@@ -1120,7 +807,6 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
     int for_mac_computation_length = string_buffer_get_length(for_mac_computation);
     char *for_mac_computation_chars = string_buffer_get_chars(for_mac_computation);
     //@open ssh_keys(session->keys);
-    ////@ assert session->keys |-> ?keys &*& chars(keys->key_integrity_s2c, _, _);
     zout_auth_hmacsha256(computed_mac, for_mac_computation_chars, for_mac_computation_length, session->keys->key_integrity_s2c);
 
     // Encrypt
@@ -1155,59 +841,6 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
   //@close ssh_session(session, server, kex_data, isNull);
 }
 
-
-
-
-/*struct string_buffer *ssh_send_kex_init(struct ssh_session *session, success_t *success)
-@ requires
-      [_]sodium_is_initialized() &*&
-       integer(success, _); @
-//@ ensures string_buffer(result, _) &*& integer(success, _);
-{
-  struct string_buffer *kex_init = create_string_buffer();
-
-  // message code:
-  ssh_buf_append_byte(kex_init, SSH_MSG_KEXINIT);
-
-  // cookie:
-  char random[16];
-  zout_randombytes_buf(random, 16);
-  string_buffer_append_chars(kex_init, random, 16);
-
-  // kex algorithms:
-  ssh_buf_append_string_c_string(kex_init, "curve25519-sha256@libssh.org");
-
-  // server host key algorithms:
-  ssh_buf_append_string_c_string(kex_init, "ssh-ed25519");
-
-  // encryption algorithms client to server (c2s) and server to client (s2c):
-  ssh_buf_append_string_c_string(kex_init, "aes128-ctr");
-  ssh_buf_append_string_c_string(kex_init, "aes128-ctr");
-
-  // c2s and s2c mac algorithms:
-  ssh_buf_append_string_c_string(kex_init, "hmac-sha2-256");
-  ssh_buf_append_string_c_string(kex_init, "hmac-sha2-256");
-
-  // c2s and s2c compression algorithms:
-  ssh_buf_append_string_c_string(kex_init, "none");
-  ssh_buf_append_string_c_string(kex_init, "none");
-
-  // c2s and s2c languages:
-  ssh_buf_append_string_c_string(kex_init, "");
-  ssh_buf_append_string_c_string(kex_init, "");
-
-  // kex first packet follows is set to 0.
-  ssh_buf_append_byte(kex_init, 0);
-
-  // Reserved
-  ssh_buf_append_byte(kex_init, '\0');
-  ssh_buf_append_byte(kex_init, '\0');
-  ssh_buf_append_byte(kex_init, '\0');
-  ssh_buf_append_byte(kex_init, '\0');
-
-  ssh_send_packet(session, kex_init, success);
-  return kex_init;
-}*/
 struct string_buffer *ssh_send_kex_init(struct ssh_session *session, success_t *success)
 /*@ requires
       [_]sodium_is_initialized() &*&
@@ -1432,7 +1065,7 @@ void ssh_kex(struct ssh_session *session, success_t *success)
   //@ open ssh_kex_data_string_buffers(kex_data)(true);
   kex_data->client_version = ssh_recv_version(session);
   kex_data->server_version = ssh_send_version(session);
-  ////@ close ssh_kex_data(kex_data);
+  
   //@ close ssh_session(session, server, kex_data_s, isNull);
   kex_data->server_kex_init = ssh_send_kex_init(session, success);
   kex_data->client_kex_init = ssh_recv_kex_init(session, success);
@@ -1454,7 +1087,6 @@ void ssh_kex(struct ssh_session *session, success_t *success)
     string_buffer_dispose(kex_data->dh_client_pubkey);
     free(kex_data);
     return;
-    ////@ close ssh_kex_data_string_buffers(kex_data);
     //@ close ssh_session(session, server, kex_data_s, isNull);
   }
 
@@ -1463,8 +1095,7 @@ void ssh_kex(struct ssh_session *session, success_t *success)
   zout_box_keypair(kex_data->dh_server_publickey, kex_data->dh_server_secretkey);
 
   // ======  Calculate shared secret (client will also calculate this) ========
-  ////@  ssh_kex_data_string_buffers(kex_data)(false)
-  char *client_dh_pubkey_chars = string_buffer_get_chars(kex_data->dh_client_pubkey);
+    char *client_dh_pubkey_chars = string_buffer_get_chars(kex_data->dh_client_pubkey);
   zout_scalarmult(kex_data->dh_shared_secret, kex_data->dh_server_secretkey, client_dh_pubkey_chars);
   //@ string_buffer_merge_chars(kex_data->dh_client_pubkey);
   //@ close ssh_kex_data_string_buffers(kex_data)(false);
@@ -1486,11 +1117,9 @@ void ssh_kex(struct ssh_session *session, success_t *success)
   // switch to new cipher and keys
   // we don't support re-key-exchange, but it's easier to verify like this:
   if (session->kex_data != NULL) ssh_kex_data_dispose(session->kex_data);
-  ////@ open ssh_kex_data(session->kex_data, _);
-  session->kex_data = kex_data;
+    session->kex_data = kex_data;
   //@ assert session->kex_data == kex_data;
   session->cipher_block_size = zout_stream_aes128ctr_CIPHERBLOCKBYTES;
-  ////@ close ssh_kex_data(session->kex_data, false);
   //@ close ssh_session(session, server, kex_data, false);
 }
 
@@ -1754,19 +1383,6 @@ void ssh_protocol_loop(struct ssh_session *session, success_t *success)
         [_]ssh_server_fractionable(server);
 @*/
 
-
-
-/**@
-    predicate_family_instance thread_run_data(ssh_do_session)(struct ssh_session *session) =
-        [_]sodium_is_initialized() &*&
-        ssh_session(session, ?server, 0, true) &*&
-        ssh_server(server) &*& session != 0 &*&
-        [_]server->users_mutex |-> ?mutex &*&
-        [_]mutex(mutex, ssh_server_userlist(server))
-
-        ;
-@*/
-
 void ssh_do_session(struct ssh_session *session)//@ : thread_run
 //@ requires thread_run_data(ssh_do_session)(session);
 //@ ensures true;
@@ -1799,7 +1415,6 @@ void ssh_do_session(struct ssh_session *session)//@ : thread_run
   //@ open ssh_keys(_);
   free(session->keys);
   free(session);
-  ////@ leak ssh_server(_);
 }
 
 // Hint : // @ import_module zout;
@@ -1816,7 +1431,7 @@ int main() //@ : main_full(picosshd)
   //@open ssh_server_total(ssh);
     return 1;
   }
-  ////@ leak ssh_server(ssh);
+  
   while (true)
   //@ invariant [_]sodium_is_initialized() &*& ssh_server_total(ssh);
   {
