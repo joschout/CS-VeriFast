@@ -117,7 +117,7 @@
         ssh_keys(keys) &*&
         (keys != 0 ) &*&
         session->cipher_block_size |-> ?cipher_block_size &*&
-        (cipher_block_size >= 8) &*&
+        cipher_block_size >= 8 &*& cipher_block_size <= 16 &*&
         session->packets_read |-> ?packets_read &*&
         (packets_read >= 0) &*&
         session->packets_written |-> ?packets_written &*&
@@ -1072,12 +1072,17 @@ void ssh_send_packet(struct ssh_session *session, struct string_buffer *payload,
 
   // Calculate lengths
   int32_t payload_length = string_buffer_get_length(payload);
+  //@ produce_limits(payload_length);
   //@ open ssh_session(session, server, kex_data, isNull);
-
+  
   //@ div_rem((payload_length), session->cipher_block_size);
   // Hint: session->cipher_block_size is 8 or 16
   // Hint: call the lemma "div_rem((payload_length), session->cipher_block_size);"
+  
+  ///@ produce_limits(session->cipher_block_size);
+  
   int32_t padding_length = session->cipher_block_size - (4 + 1 + (payload_length % session->cipher_block_size));
+  //@ produce_limits(padding_length);
   if (padding_length < 4){
     padding_length = padding_length + session->cipher_block_size;
   }
@@ -1352,7 +1357,8 @@ void ssh_kex_calc_key(struct ssh_kex_data *kex_data, int32_t number, char *desti
 /*@ requires
       [_]sodium_is_initialized() &*&
       ssh_kex_data(kex_data, false) &*& kex_data !=0 &*&
-      chars(destination, zout_hash_sha256_BYTES, _); @*/
+      chars(destination, zout_hash_sha256_BYTES, _) &*&
+      0 <= number &*& number <= 5; @*/
 //@ ensures  ssh_kex_data(kex_data, false) &*& chars(destination, zout_hash_sha256_BYTES, _);
 {
   /* RFC says:
@@ -1365,6 +1371,7 @@ void ssh_kex_calc_key(struct ssh_kex_data *kex_data, int32_t number, char *desti
     o  Integrity key client to server: HASH(K || H || "E" || session_id)
     o  Integrity key server to client: HASH(K || H || "F" || session_id)
     */
+  //@ produce_limits(number);
   //@ open ssh_kex_data(kex_data, false);
   struct string_buffer *to_hash = create_string_buffer();
   ssh_buf_append_mpint(to_hash, kex_data->dh_shared_secret, zout_scalarmult_BYTES);
