@@ -76,20 +76,32 @@
 
 //@ import_module zout;
 
-/*@ predicate ssh_server(struct ssh_server *server) =
+/*@ predicate ssh_server_total(struct ssh_server *server) =
       server == 0 ?
         true
       : 
         malloc_block_ssh_server(server) &*&
         server->ss |-> ?server_socket &*&
         server_socket(server_socket) &*&
-        chars(server->host_pub_key, zout_sign_PUBLICKEYBYTES, _) &*&
-        chars(server->host_secret_key, zout_sign_SECRETKEYBYTES, _) &*&
-        server->host_key_string_without_length |-> ?hkwl &*&
-        string_buffer(hkwl, _) &*&
-        [?f1]server->users_mutex |-> ?mutex &*&
-        [?f2]mutex(mutex, ssh_server_userlist(server));
+        [_]ssh_server_fractionable(server);
  @*/
+
+/*@
+  predicate ssh_server_fractionable(struct ssh_server *server) =
+        server != 0 &*&
+        [_]chars(server->host_pub_key, zout_sign_PUBLICKEYBYTES, _) &*&
+        [_]chars(server->host_secret_key, zout_sign_SECRETKEYBYTES, _) &*&
+        [_]server->host_key_string_without_length |-> ?hkwl &*&
+        [_]string_buffer(hkwl, _) &*&
+        [_]server->users_mutex |-> ?mutex &*&
+        [_]mutex(mutex, ssh_server_userlist(server));
+ @*/
+
+
+
+
+
+
 /*@ predicate ssh_session(struct ssh_session *session, struct ssh_server *server, struct ssh_kex_data *kex_data, bool isNull) =
       session == 0 ?
         true
@@ -616,17 +628,17 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
  */
 struct ssh_server *create_ssh_server(int port)
 //@ requires module(zout, true);
-//@ ensures [_]sodium_is_initialized() &*& ssh_server(result);
+//@ ensures [_]sodium_is_initialized() &*& ssh_server_total(result);
 {
 
   if (sodium_init() == -1) {
-    //@close ssh_server(0);
+    //@close ssh_server_total(0);
     return NULL;
   }
 
   struct ssh_server *server = malloc(sizeof(struct ssh_server));
   if (server == NULL) {
-  //@close ssh_server(0);
+  //@close ssh_server_total(0);
     return NULL;
   }
 
@@ -673,7 +685,7 @@ struct ssh_server *create_ssh_server(int port)
 
   if(failed){
     free(server);
-    //@close ssh_server(0);
+    //@close ssh_server_total(0);
     return NULL;
   }
 
@@ -682,7 +694,7 @@ struct ssh_server *create_ssh_server(int port)
   if (ss == NULL) {
     puts("Error: Cannot listen on tcp socket. *Maybe* the port is in use?");
     free(server);
-    //@close ssh_server(0);
+    //@close ssh_server_total(0);
     return NULL;
   }
   server->host_key_string_without_length = ssh_create_host_key_string_without_length(server);
@@ -692,13 +704,22 @@ struct ssh_server *create_ssh_server(int port)
   //@ close ssh_server_userlist(server)();
   //@ close create_mutex_ghost_arg(ssh_server_userlist(server));
   server->users_mutex = create_mutex();
+
+  ////@ leak server->users_mutex |-> ?mutex &*& mutex(mutex, ssh_server_userlist(server));
  // //@ close ssh_server(server);
 
   struct string_buffer *username = create_string_buffer_from_string("admin");
   struct string_buffer *password = create_string_buffer_from_string("123");
   ////@ open ssh_server(server);
   ssh_adduser(server, username, password);
-  //@ close ssh_server(server);
+  /*@ leak chars(server->host_pub_key, zout_sign_PUBLICKEYBYTES, _) &*&
+      chars(server->host_secret_key, zout_sign_SECRETKEYBYTES, _) &*&
+      server->host_key_string_without_length |-> ?hkwl &*& string_buffer(hkwl, _) &*&
+      server->users_mutex |-> ?mutex &*&
+      mutex(mutex, ssh_server_userlist(server)); @*/
+  //@ close ssh_server_fractionable(server);
+  //@ leak ssh_server_fractionable(server);
+  //@ close ssh_server_total(server);
   string_buffer_dispose(username);
   string_buffer_dispose(password);
 
@@ -711,8 +732,8 @@ struct ssh_server *create_ssh_server(int port)
  *
  */
 struct ssh_session *ssh_create_session(struct ssh_server *ssh)
-//@ requires ssh_server(ssh) &*& ssh != 0;
-//@ ensures ssh_server(ssh) &*& ssh_session(result, ssh, 0, true);
+//@ requires ssh_server_total(ssh) &*& ssh != 0;
+//@ ensures ssh_server_total(ssh) &*& ssh_session(result, ssh, 0, true);
 {
   struct ssh_session *session = malloc(sizeof(struct ssh_session));
   if (session == NULL) {
@@ -726,9 +747,9 @@ struct ssh_session *ssh_create_session(struct ssh_server *ssh)
     return NULL;
   }
 
-  //@ open ssh_server(ssh);
+  //@ open ssh_server_total(ssh);
   struct socket* socket = server_socket_accept(ssh->ss);
-  //@ close ssh_server(ssh);
+  //@ close ssh_server_total(ssh);
   if (socket != NULL){
     session->server = ssh;
     session->packets_read = 0;
@@ -1280,11 +1301,11 @@ void ssh_kex_data_dispose(struct ssh_kex_data *kex)
 struct string_buffer *ssh_kex_sign(struct ssh_server *server, struct ssh_kex_data *kex_data)
 /*@ requires
       [_]sodium_is_initialized() &*&
-      ssh_server(server) &*& server != 0 &*&
+      [?f]ssh_server_fractionable(server) &*& server != 0 &*&
       ssh_kex_data(kex_data, false) &*& kex_data != 0; @*/
 /*@ ensures
       string_buffer(result, _) &*&
-      ssh_server(server) &*& server != 0 &*&
+      [f]ssh_server_fractionable(server) &*& server != 0 &*&
       ssh_kex_data(kex_data, false) &*& kex_data != 0; @*/
 { 
   int32_t dh_signature_length; // VeriFast: "A local variable whose address is taken must be declared at the start of a block."
@@ -1297,7 +1318,7 @@ struct string_buffer *ssh_kex_sign(struct ssh_server *server, struct ssh_kex_dat
   ssh_buf_append_string_buf(to_hash, kex_data->server_version);
   ssh_buf_append_string_buf(to_hash, kex_data->client_kex_init);
   ssh_buf_append_string_buf(to_hash, kex_data->server_kex_init);
-  //@ open ssh_server(server);
+  //@ open [f]ssh_server_fractionable(server);
   ssh_buf_append_string_buf(to_hash, server->host_key_string_without_length);
   ssh_buf_append_string_buf(to_hash, kex_data->dh_client_pubkey);
   ssh_buf_append_string_chars(to_hash, kex_data->dh_server_publickey, zout_box_PUBLICKEYBYTES);
@@ -1317,7 +1338,7 @@ struct string_buffer *ssh_kex_sign(struct ssh_server *server, struct ssh_kex_dat
   char dh_signature[zout_sign_BYTES];
   zout_sign_detached(dh_signature, &dh_signature_length, kex_data->dh_hash, zout_hash_sha256_BYTES, server->host_secret_key);
   //@close ssh_kex_data(kex_data, false);
-  //@close ssh_server(server);
+  //@close [f]ssh_server_fractionable(server);
 
   struct string_buffer *signature_buf = create_string_buffer();
   ssh_buf_append_string_c_string(signature_buf, "ssh-ed25519");
@@ -1384,12 +1405,12 @@ void ssh_kex_calc_keys(struct ssh_kex_data *kex_data, struct ssh_keys *keys)
 void ssh_kex(struct ssh_session *session, success_t *success)
 /*@ requires
       [_]sodium_is_initialized() &*&
-      ssh_server(?server) &*&
+      [?f]ssh_server_fractionable(?server) &*&
       ssh_session(session, server, ?kex_data_s, ?isNull) &*& 
       
        integer(success, _) &*& session != 0; @*/
 /*@ ensures 
-	ssh_server(server) &*& 
+	[f]ssh_server_fractionable(server) &*&
 	ssh_session(session, server, ?kex_data_new, ?isNull0)  &*&
 	integer(success, ?isSucces) &*&
     (isSucces == 1 ? isNull0 == false : true); @*/
@@ -1662,8 +1683,6 @@ void ssh_protocol_loop(struct ssh_session *session, success_t *success)
       integer(success, _); @*/
 /*@ ensures
       ssh_session(session, server, kex_data, false) &*&
-      [_]server->users_mutex |-> mutex &*&
-      [_]mutex(mutex, ssh_server_userlist(server)) &*&
       integer(success, _); @*/
 {
   bool cont = true;
@@ -1725,9 +1744,7 @@ void ssh_protocol_loop(struct ssh_session *session, success_t *success)
     predicate_family_instance thread_run_data(ssh_do_session)(struct ssh_session *session) =
         [_]sodium_is_initialized() &*&
         ssh_session(session, ?server, 0, true) &*& session != 0 &*& 
-        ssh_server(server) &*& server != 0
-
-        ;
+        [_]ssh_server_fractionable(server);
 @*/
 
 
@@ -1754,9 +1771,9 @@ void ssh_do_session(struct ssh_session *session)//@ : thread_run
   //@open thread_run_data(ssh_do_session)(session);
   ssh_kex(session, &success);
   if (success == SUCCESS) {
-    //@ open ssh_server(?server);
+    //@ open [?f]ssh_server_fractionable(?server);
     ssh_protocol_loop(session, &success);
-    //@ open ssh_server(server);
+    //@ close [f]ssh_server_fractionable(server);
   }
   //@ open ssh_session(session, _, _, _);
   socket_close(session->socket);
@@ -1775,7 +1792,7 @@ void ssh_do_session(struct ssh_session *session)//@ : thread_run
   //@ open ssh_keys(_);
   free(session->keys);
   free(session);
-  //@ leak ssh_server(_);
+  ////@ leak ssh_server(_);
 }
 
 // Hint : // @ import_module zout;
@@ -1789,24 +1806,27 @@ int main() //@ : main_full(picosshd)
   //@ open_module();
   struct ssh_server *ssh = create_ssh_server(port);
   if (ssh == 0){
-  //@open ssh_server(ssh);
+  //@open ssh_server_total(ssh);
     return 1;
   }
+  ////@ leak ssh_server(ssh);
   while (true)
-  //@ invariant [_]sodium_is_initialized() &*& ssh_server(ssh);
+  //@ invariant [_]sodium_is_initialized() &*& ssh_server_total(ssh);
   {
     struct ssh_session *session = NULL;
 
     //@ close ssh_session(session, ssh, 0, true);
+    //
     while (session == NULL)
-    //@ invariant [_]sodium_is_initialized() &*& ssh_server(ssh) &*& ssh_session(session, ssh, 0, true);
+    //@ invariant [_]sodium_is_initialized() &*& ssh_server_total(ssh) &*& ssh_session(session, ssh, 0, true);
     {
     //@ open ssh_session(session, ssh, 0, true);
       session = ssh_create_session(ssh);
     }
-    //@ open ssh_server(ssh);
-    //@close thread_run_data(ssh_do_session)(session);
+    //@ open ssh_server_total(ssh);
+    //@ close thread_run_data(ssh_do_session)(session);
     thread_start(ssh_do_session, session); //starts a runnable function which cannot be joined
+    //@ close ssh_server_total(ssh);
   }
 }
 
