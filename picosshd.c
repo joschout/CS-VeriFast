@@ -86,17 +86,15 @@
         [_]ssh_server_fractionable(server);
  @*/
 
-/*@
-  predicate ssh_server_fractionable(struct ssh_server *server) =
-        server != 0 &*&
-        [_]chars(server->host_pub_key, zout_sign_PUBLICKEYBYTES, _) &*&
-        [_]chars(server->host_secret_key, zout_sign_SECRETKEYBYTES, _) &*&
-        [_]server->host_key_string_without_length |-> ?hkwl &*&
-        [_]string_buffer(hkwl, _) &*&
-        [_]server->users_mutex |-> ?mutex &*&
-        [_]mutex(mutex, ssh_server_userlist(server));
- @*/
-
+/*@ predicate ssh_server_fractionable(struct ssh_server *server) =
+      server != 0 &*&
+      [_]chars(server->host_pub_key, zout_sign_PUBLICKEYBYTES, _) &*&
+      [_]chars(server->host_secret_key, zout_sign_SECRETKEYBYTES, _) &*&
+      [_]server->host_key_string_without_length |-> ?hkwl &*&
+      [_]string_buffer(hkwl, _) &*&
+      [_]server->users_mutex |-> ?mutex &*&
+      [_]mutex(mutex, ssh_server_userlist(server));
+@*/
 
 /*@ predicate ssh_session(struct ssh_session *session, struct ssh_server *server, struct ssh_kex_data *kex_data, bool isNull) =
       session == 0 ?
@@ -123,7 +121,7 @@
         string_buffer(rbuffer, _) &*&
         session->logged_in_as |-> ?logged_in_as &*&
         (logged_in_as == 0 ? true : string_buffer(logged_in_as, _) );
- @*/
+@*/
 
 /*@ predicate ssh_keys(struct ssh_keys *keys) =
       keys == 0 ?
@@ -136,9 +134,7 @@
         chars(keys->key_enc_s2c, zout_hash_sha256_BYTES, _) &*&
         chars(keys->key_integrity_c2s, zout_hash_sha256_BYTES, _) &*&
         chars(keys->key_integrity_s2c, zout_hash_sha256_BYTES, _);
-
- @*/
-
+@*/
 
 /*@ predicate ssh_kex_data(struct ssh_kex_data *data, bool isNull) =
       data == 0 ?
@@ -151,20 +147,17 @@
         chars(data->dh_shared_secret, zout_scalarmult_BYTES, _) &*&
         chars(data->session_id, zout_hash_sha256_BYTES, _) &*&
         chars(data->dh_hash, zout_hash_sha256_BYTES, _);
-
-
- @*/
+@*/
 
 /*@ predicate_ctor ssh_kex_data_string_buffers(struct ssh_kex_data *data)(bool isNull) =
       	isNull == true ?
-      	(
       	  data->client_version |-> 0 &*&
           data->server_version |-> 0 &*&
           data->server_kex_init |-> 0 &*&
           data->client_kex_init |-> 0 &*&
-          data->dh_client_pubkey |-> 0)
+          data->dh_client_pubkey |-> 0
         :
-         ( data->client_version |-> ?client_version &*&
+          data->client_version |-> ?client_version &*&
           string_buffer(client_version, _) &*&
           data->server_version |-> ?server_version &*& server_version != 0 &*&
           string_buffer(server_version, _) &*&
@@ -173,106 +166,94 @@
           data->client_kex_init |-> ?client_kex_init &*& client_kex_init != 0 &*&
           string_buffer(client_kex_init, _) &*&
           data->dh_client_pubkey |-> ?dh_client_pubkey &*& dh_client_pubkey !=0 &*&
-          string_buffer(dh_client_pubkey, _)
-        );
+          string_buffer(dh_client_pubkey, _) ;
 @*/
 
 
 /*@ predicate_ctor ssh_server_userlist(struct ssh_server *server)() =
       server->users |-> ?user &*&
-      users_cfr_nodes(user, ?count);
+      users_stack(user, ?count);
 @*/
 
-
-/*=====================================================================
- * ====================================================================
- * ================= CFR NODES ========================================
- * ====================================================================
- * ====================================================================*/
-
-/*@
-    predicate users_cfr_nodes(struct ssh_user *user, int count) =
-        user == 0 ?
-            count == 0
-        :
-            0 < count &*&
-            malloc_block_ssh_user(user) &*&
-            user->username |-> ?name &*& string_buffer(name, _) &*&
-            user->password |-> ?password &*& string_buffer(password, _) &*&
-            user->mail |-> ?mail  &*& string_buffer(mail, _) &*&
-            user->next |-> ?next &*&
-            users_cfr_nodes(next, count - 1);
+/*@ predicate users_stack(struct ssh_user *user, int count) =
+      user == 0 ?
+          count == 0
+      :
+          0 < count &*&
+          malloc_block_ssh_user(user) &*&
+          user->username |-> ?name &*& string_buffer(name, _) &*&
+          user->password |-> ?password &*& string_buffer(password, _) &*&
+          user->mail |-> ?mail  &*& string_buffer(mail, _) &*&
+          user->next |-> ?next &*&
+          users_stack(next, count - 1);
 
 @*/
-/*@
-predicate users_cfrnodes_lseg(struct ssh_user  *first, struct ssh_user  *last, int count) =
-  first == last ?
-    count == 0
-  :
-    0 < count &*&
-    first != 0 &*&
-    malloc_block_ssh_user(first) &*&
-    first->username |-> ?name &*& string_buffer(name, _) &*&
-    first->password |-> ?password &*& string_buffer(password, _) &*&
-    first->mail |-> ?mail  &*& string_buffer(mail, _) &*&
-    first->next |-> ?next &*&
-    users_cfrnodes_lseg(next, last, count - 1);
+
+/*@ predicate users_lseg(struct ssh_user  *first, struct ssh_user  *last, int count) =
+      first == last ?
+        count == 0
+      :
+        0 < count &*&
+        first != 0 &*&
+        malloc_block_ssh_user(first) &*&
+        first->username |-> ?name &*& string_buffer(name, _) &*&
+        first->password |-> ?password &*& string_buffer(password, _) &*&
+        first->mail |-> ?mail  &*& string_buffer(mail, _) &*&
+        first->next |-> ?next &*&
+        users_lseg(next, last, count - 1);
 @*/
 
 //PROOF: nodes(first, count) == lseg(first, 0, count): they bundle the same heap chuncks and conditions
-/*@
-lemma void users_cfrnodes_to_lseg_lemma(struct ssh_user *first)
-  requires users_cfr_nodes(first, ?count);
-  ensures users_cfrnodes_lseg(first, 0, count);
-{
-  open users_cfr_nodes(first, count);
-  if(first != 0){
-    users_cfrnodes_to_lseg_lemma(first->next);
-  }
-  close users_cfrnodes_lseg(first, 0, count);
-}
-@*/
-/*@
-lemma void lseg_to_users_cfrnodes_lemma(struct ssh_user *first)
-  requires users_cfrnodes_lseg(first, 0, ?count);
-  ensures users_cfr_nodes(first, count);
-{
-  open users_cfrnodes_lseg(first, 0, count);
-  if(first != 0){
-    lseg_to_users_cfrnodes_lemma(first->next);
-  }
-  close users_cfr_nodes(first, count);
-}
+
+/*@ lemma void users_stack_to_lseg_lemma(struct ssh_user *first)
+      requires users_stack(first, ?count);
+      ensures users_lseg(first, 0, count);
+    {
+      open users_stack(first, count);
+      if(first != 0){
+        users_stack_to_lseg_lemma(first->next);
+      }
+      close users_lseg(first, 0, count);
+    }
 @*/
 
-/*@
-lemma void users_cfrnodes_lseg_add_lemma(struct ssh_user *first)
-requires
-  users_cfrnodes_lseg(first, ?last, ?count) &*&
-  last != 0 &*&
-   malloc_block_ssh_user(last) &*&
-    last->username |-> ?name &*& string_buffer(name, _) &*&
-    last->password |-> ?password &*& string_buffer(password, _) &*&
-    last->mail |-> ?mail  &*& string_buffer(mail, _) &*&
-    last->next |-> ?next &*&
-  users_cfrnodes_lseg(next, 0, ?count0);
-ensures
-  users_cfrnodes_lseg(first, next, count + 1) &*&
-  users_cfrnodes_lseg(next, 0, count0);
-{
-  open users_cfrnodes_lseg(first, last, count);
-  if(first == last){
-  close users_cfrnodes_lseg(next, next, 0);
-  } else {
-    users_cfrnodes_lseg_add_lemma(first->next);
-  }
-  open users_cfrnodes_lseg(next, 0, count0);
-  close users_cfrnodes_lseg(next, 0, count0);
-  close users_cfrnodes_lseg(first, next, count + 1);
-}
+/*@ lemma void users_lseg_to_stack_lemma(struct ssh_user *first)
+      requires users_lseg(first, 0, ?count);
+      ensures users_stack(first, count);
+    {
+      open users_lseg(first, 0, count);
+      if(first != 0){
+        users_lseg_to_stack_lemma(first->next);
+      }
+      close users_stack(first, count);
+    }
 @*/
 
-
+/*@ lemma void users_lseg_add_lemma(struct ssh_user *first)
+      requires
+        users_lseg(first, ?last, ?count) &*&
+        last != 0 &*&
+         malloc_block_ssh_user(last) &*&
+          last->username |-> ?name &*& string_buffer(name, _) &*&
+          last->password |-> ?password &*& string_buffer(password, _) &*&
+          last->mail |-> ?mail  &*& string_buffer(mail, _) &*&
+          last->next |-> ?next &*&
+        users_lseg(next, 0, ?count0);
+      ensures
+        users_lseg(first, next, count + 1) &*&
+        users_lseg(next, 0, count0);
+    {
+      open users_lseg(first, last, count);
+      if(first == last){
+      close users_lseg(next, next, 0);
+      } else {
+        users_lseg_add_lemma(first->next);
+      }
+      open users_lseg(next, 0, count0);
+      close users_lseg(next, 0, count0);
+      close users_lseg(first, next, count + 1);
+    }
+@*/
 
 
 /**
@@ -313,11 +294,11 @@ void ssh_adduser(struct ssh_server *server, struct string_buffer *username, stru
   mutex_acquire(server->users_mutex);
   //@ open ssh_server_userlist(server)();
   
-  //@ open users_cfr_nodes(?oldUser, ?count);
-  //@ close users_cfr_nodes(oldUser, count);
+  //@ open users_stack(?oldUser, ?count);
+  //@ close users_stack(oldUser, count);
   user->next = server->users;
   server->users = user;
-  //@ close  users_cfr_nodes(user, count + 1);
+  //@ close  users_stack(user, count + 1);
   
   //@ close ssh_server_userlist(server)();
   mutex_release(server->users_mutex);
@@ -374,24 +355,24 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
   struct ssh_user *user = session->server->users;
   // Hint: You will need list segments (see tutorial) or Tuerk-loops (see tutorial).
 
-  //@ users_cfrnodes_to_lseg_lemma(user);
+  //@ users_stack_to_lseg_lemma(user);
 
-  //@ open users_cfrnodes_lseg(?first_user, 0, ?totalCount);
-  //@ close users_cfrnodes_lseg(first_user, 0, totalCount);
+  //@ open users_lseg(?first_user, 0, ?totalCount);
+  //@ close users_lseg(first_user, 0, totalCount);
 
-  //@ close users_cfrnodes_lseg(user, user, 0);
+  //@ close users_lseg(user, user, 0);
   while (user != NULL)
 /*@ invariant
           session->logged_in_as |-> ?log &*&
           (log == 0 ? true : string_buffer(log, _) ) &*&
           string_buffer(username, us) &*&
           string_buffer(password, pss) &*&
-          users_cfrnodes_lseg(first_user, user, ?count1) &*&
-          users_cfrnodes_lseg(user, 0, ?count2) &*&
+          users_lseg(first_user, user, ?count1) &*&
+          users_lseg(user, 0, ?count2) &*&
           totalCount == count1 + count2; @*/
   {
    //@ assert user != 0;
-    //@ open users_cfrnodes_lseg(user, 0, count2);
+    //@ open users_lseg(user, 0, count2);
     if (string_buffer_equals(user->username, username)){
       if(string_buffer_equals(user->password, password)){
 
@@ -405,11 +386,11 @@ bool ssh_auth_user(struct ssh_session *session, struct string_buffer *username, 
 
     //// lemma het vanacher aanvoegen van user aan userlist2 geeft ssh_users(user2, append(userlist2, cons(user, nil)))
     user = user->next;
-    //@ users_cfrnodes_lseg_add_lemma(first_user);
+    //@ users_lseg_add_lemma(first_user);
 
   }
-  //@ open users_cfrnodes_lseg(0,0, _);
-  //@ lseg_to_users_cfrnodes_lemma(first_user); 
+  //@ open users_lseg(0,0, _);
+  //@ users_lseg_to_stack_lemma(first_user);
   
   //@ close ssh_server_userlist(server)();
   mutex_release(session->server->users_mutex);
@@ -493,7 +474,7 @@ struct ssh_server *create_ssh_server(int port)
   server->host_key_string_without_length = ssh_create_host_key_string_without_length(server);
   server->ss = ss;
   server->users = NULL;
-  //@ close users_cfr_nodes(0, 0);
+  //@ close users_stack(0, 0);
   //@ close ssh_server_userlist(server)();
   //@ close create_mutex_ghost_arg(ssh_server_userlist(server));
   server->users_mutex = create_mutex();
